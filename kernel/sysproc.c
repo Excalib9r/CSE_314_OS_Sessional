@@ -5,6 +5,7 @@
 #include "memlayout.h"
 #include "spinlock.h"
 #include "proc.h"
+#include "myStruct.h"
 
 uint64
 sys_exit(void)
@@ -88,4 +89,23 @@ sys_uptime(void)
   xticks = ticks;
   release(&tickslock);
   return xticks;
+}
+
+uint64
+sys_trace(void){
+  int n;
+  argint(0, &n);
+  myproc()->syscall_no = n;
+  return 0;
+}
+
+uint64
+sys_history(void){
+  int n;
+  argint(0, &n);
+  uint64 ptr;
+  argaddr(1, &ptr);
+  struct myStruct *status = getindex(n);
+  copyout(myproc()->pagetable, ptr, (char *) status, sizeof(*status));
+  return 0;
 }

@@ -8,6 +8,7 @@ struct spinlock;
 struct sleeplock;
 struct stat;
 struct superblock;
+struct myStruct;
 
 // bio.c
 void            binit(void);
@@ -154,6 +155,11 @@ void            uartintr(void);
 void            uartputc(int);
 void            uartputc_sync(int);
 int             uartgetc(void);
+
+//
+void            initializeStruct(void);
+struct myStruct* getindex(int);
+//
 
 // vm.c
 void            kvminit(void);

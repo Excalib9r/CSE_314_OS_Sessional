@@ -6,6 +6,7 @@
 #include "proc.h"
 #include "syscall.h"
 #include "defs.h"
+#include "myStruct.h"
 
 // Fetch the uint64 at addr from the current process.
 int
@@ -101,6 +102,10 @@ extern uint64 sys_unlink(void);
 extern uint64 sys_link(void);
 extern uint64 sys_mkdir(void);
 extern uint64 sys_close(void);
+extern uint64 sys_trace(void);
+extern uint64 sys_history(void);
+
+
 
 // An array mapping syscall numbers from syscall.h
 // to the function that handles the system call.
@@ -126,7 +131,111 @@ static uint64 (*syscalls[])(void) = {
 [SYS_link]    sys_link,
 [SYS_mkdir]   sys_mkdir,
 [SYS_close]   sys_close,
+[SYS_trace]   sys_trace,
+[SYS_history] sys_history,
 };
+
+static char* syscall_name[] = {
+[SYS_fork]    "fork",
+[SYS_exit]    "exit",
+[SYS_wait]    "wait",
+[SYS_pipe]    "pipe",
+[SYS_read]    "read",
+[SYS_kill]    "kill",
+[SYS_exec]    "exec",
+[SYS_fstat]   "fstat",
+[SYS_chdir]   "chdir",
+[SYS_dup]     "dup",
+[SYS_getpid]  "getpid",
+[SYS_sbrk]    "sbrk",
+[SYS_sleep]   "sleep",
+[SYS_uptime]  "uptime",
+[SYS_open]    "open",
+[SYS_write]   "write",
+[SYS_mknod]   "mknod",
+[SYS_unlink]  "unlink",
+[SYS_link]    "link",
+[SYS_mkdir]   "mkdir",
+[SYS_close]   "close",
+[SYS_trace]   "trace",
+[SYS_history] "history",
+};
+
+static int arg_count[] = {
+[SYS_fork]    0,
+[SYS_exit]    1,
+[SYS_wait]    1,
+[SYS_pipe]    1,
+[SYS_read]    3,
+[SYS_kill]    1,
+[SYS_exec]    2,
+[SYS_fstat]   2,
+[SYS_chdir]   1,
+[SYS_dup]     1,
+[SYS_getpid]  0,
+[SYS_sbrk]    1,
+[SYS_sleep]   1,
+[SYS_uptime]  0,
+[SYS_open]    2,
+[SYS_write]   3,
+[SYS_mknod]   3,
+[SYS_unlink]  1,
+[SYS_link]    2,
+[SYS_mkdir]   1,
+[SYS_close]   1,
+[SYS_trace]   1,
+[SYS_history] 2,
+};
+
+static int arg_type[][6] = {
+[SYS_fork]    {},
+[SYS_exit]    {1},
+[SYS_wait]    {2},
+[SYS_pipe]    {2},
+[SYS_read]    {1,2,1},
+[SYS_kill]    {1},
+[SYS_exec]    {3,2},
+[SYS_fstat]   {1,2},
+[SYS_chdir]   {3},
+[SYS_dup]     {1},
+[SYS_getpid]  {},
+[SYS_sbrk]    {1},
+[SYS_sleep]   {1},
+[SYS_uptime]  {},
+[SYS_open]    {3,1},
+[SYS_write]   {1,2,1},
+[SYS_mknod]   {3,1,1},
+[SYS_unlink]  {3},
+[SYS_link]    {3,3},
+[SYS_mkdir]   {3},
+[SYS_close]   {1},
+[SYS_trace]   {1},
+[SYS_history] {1,2},
+};
+
+
+// structure
+struct myStruct struct_array[23];
+
+void
+initializeStruct(void){
+  int i;
+  for(i = 0; i < 23; i++){
+    safestrcpy(struct_array[i].syscall_name, syscall_name[i+1], sizeof(struct_array->syscall_name));
+    initlock(&struct_array->myLock, "bomb");
+    struct_array[i].accum_time = 0;
+    struct_array[i].count = 0;
+  }
+}
+
+struct myStruct*
+getindex(int index){
+  return &struct_array[index - 1];
+}
+
+//
+
+
 
 void
 syscall(void)
@@ -138,7 +247,54 @@ syscall(void)
   if(num > 0 && num < NELEM(syscalls) && syscalls[num]) {
     // Use num to lookup the system call function for num, call it,
     // and store its return value in p->trapframe->a0
+    if(num == p->syscall_no){
+      printf("pid: %d, syscall: %s, args: (", p->pid, syscall_name[num]);
+      int i;
+      for(i = 0; i < arg_count[num]; i++){
+        if(i != 0){
+          printf(", ");
+        }
+        if(arg_type[num][i] == 1){
+          int n;
+          argint(i, &n);
+          printf("%d",n);
+        }
+        else if(arg_type[num][i] == 2){
+          uint64 ptr;
+          argaddr(i, &ptr);
+          printf("%p", ptr);
+        }
+        else if(arg_type[num][i] == 3){
+          char str[50];
+          argstr(i, str, 50);
+          printf("%s", str);
+        }
+      }
+      printf("), ");
+    }
+
+    //history
+
+    acquire(&tickslock);
+    uint start_time = ticks;
+    release(&tickslock);
+
     p->trapframe->a0 = syscalls[num]();
+
+    acquire(&tickslock);
+    uint end_time = ticks;
+    release(&tickslock);
+
+    acquire(&(struct_array[num - 1].myLock));
+    struct_array[num - 1].count++;
+    struct_array[num - 1].accum_time += (end_time - start_time);
+    release(&(struct_array[num - 1].myLock));
+
+    if(num == p->syscall_no){
+      printf("return: %d\n", p->trapframe->a0);
+    }
+
+
   } else {
     printf("%d %s: unknown sys call %d\n",
             p->pid, p->name, num);
